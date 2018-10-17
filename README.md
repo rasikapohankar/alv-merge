@@ -11,3 +11,14 @@ Current implementation:
 
 This ensures that all unique CB row values will be at the top in the output file
 and all repeated ones will be together at the end of the file.
+
+Compile C++ code:
+g++ -std=c++11 concatenate\_matrices.cpp -lz /usr/include/boost/stage/lib/libboost\_iostreams.so -o concatenate\_matrices
+
+g++ -std=c++11 concatenate\_matrices.cpp -lboost\_iostreams -o concatenate\_matrices
+
+For self-reference:
+* Download the boost tar, untar it
+* Run bootstrap.sh for compiling iostream lib
+* Use above command to create out file
+* Update LD\_LIBRARY\_PATH in bashrc to /boost/stage/lib folder so that the linker is able to find the library while executing
