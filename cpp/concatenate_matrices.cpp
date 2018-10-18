@@ -91,10 +91,8 @@ int read_files(
 	matrix_stream.push(matrix_file);
 
 	size_t elem_size = sizeof(typename std::vector<double>::value_type);
-//	std::vector<std::vector<double>> nums;
 	std::vector<double> num_vector (num_genes, 0.0);
 	while (matrix_stream.read(reinterpret_cast<char *>(num_vector.data()), elem_size * num_genes)) {
-//		nums.push_back(num_vector);
 		std::getline(row_file, s_read);
 		if (cb_counts.at(s_read) == 1) {
 			// write to output file
@@ -118,13 +116,15 @@ int read_files(
 	row_file.close();
 	matrix_file.close();
 
+	int count = 0;
 	// write cell counts of repeated reads
 	for (auto content: cell_counts) {
 		for(auto &cell: content.second) {
-			out_reads << content.first << "\n";
+			out_reads << content.first << "_" << count << "\n";
 			for (auto &val: cell)
 				out_matrix << val << " ";
 			out_matrix << "\n";
+			count++;
 		}
 	}
 	return 0;
