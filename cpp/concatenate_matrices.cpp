@@ -2,34 +2,22 @@
 #include <dirent.h>
 #include <string>
 #include <vector>
-#include <errno.h>
 #include <iostream>
-#include <iomanip>
 #include <unordered_map>
 #include <cstring>
 #include <fstream>
+#include <time.h>
 #include <boost/iostreams/filter/gzip.hpp>
 #include <boost/iostreams/copy.hpp>
 #include <boost/iostreams/filtering_stream.hpp>
+#include <boost/filesystem.hpp>
 
 using namespace std;
 
-char * make_file_name(const char *path, const char *dir_name, int size) {
-	char *temp = (char *) std::malloc(std::strlen(path) + std::strlen(dir_name)*2 + size);
-        std::strcpy(temp, path);
-        std::strcat(temp, dir_name);
-        std::strcat(temp, "/");
-        std::strcat(temp, dir_name);
-	return temp;
-}
 
-
-int read_row_file(char *path, std::unordered_map<std::string, int>& map) {
-        const char *suffix = "_rows.txt";
-        char *file_name = std::strcat(path, suffix);
+int read_row_file(std::string path, std::unordered_map<std::string, int>& map) {
         std::string line;
-        cout << file_name << endl;
-        std::ifstream infile(file_name);
+        std::ifstream infile(path);
         int count = 0;
 
         while (std::getline(infile, line)) {
@@ -45,7 +33,7 @@ int read_row_file(char *path, std::unordered_map<std::string, int>& map) {
 }
 
 
-std::unordered_map<std::string, int> get_cb_counts(std::string path) {
+std::unordered_map<std::string, int> get_cb_counts(boost::filesystem::path path) {
 	vector<string> files = vector<string>();
 	DIR *dp;
 	struct dirent *dirp;
@@ -59,10 +47,10 @@ std::unordered_map<std::string, int> get_cb_counts(std::string path) {
 	while ((dirp = readdir(dp)) != NULL) {
 		if (std::strcmp(dirp->d_name, ".") != 0 && 
 			std::strcmp(dirp->d_name, "..") != 0) {
-			char *temp = make_file_name(path.c_str(), (const char*) dirp->d_name, 10);
-			int count = read_row_file(temp, map);
-			std::free(temp);
-			cout << "read file" << endl;
+			path = path / dirp->d_name / dirp->d_name;
+			path += "_rows.txt";
+			cout << path.string() << endl;
+			int count = read_row_file(path.string(), map);
 		}
 	}
 	closedir(dp);
@@ -70,13 +58,16 @@ std::unordered_map<std::string, int> get_cb_counts(std::string path) {
 }
 
 int read_files(
-		char *matrix_path,
-		char *row_file_path,
+		std::string matrix_path,
+		std::string row_file_path,
 		std::unordered_map<std::string, int> cb_counts,
 		std::unordered_map<std::string, std::vector<std::vector<double>>>& cell_counts,
 		std::ofstream& out_matrix,
 		std::ofstream& out_reads
 	      ) {
+	time_t start, end;
+
+	time(&start);
 	// open file containing reads
 	std::ifstream row_file(row_file_path, std::ios_base::in);
 	std::string s_read;
@@ -127,16 +118,23 @@ int read_files(
 			count++;
 		}
 	}
+	time(&end);
+	cout << "Time for file " << matrix_path << ": " << end - start << " sec" << endl;
 	return 0;
 }
 
-int concat_matrix(std::string path, std::unordered_map<std::string, int> cb_counts) {
+int concat_matrix( boost::filesystem::path& path,
+		   boost::filesystem::path& output_path, 
+		   std::unordered_map<std::string, int> cb_counts
+		) {
         DIR *dp;
         struct dirent *dirp;
 	const char *suffix = ".gz";
 	const char *file_suffix = "_rows.txt";
 	std::unordered_map<std::string, std::vector<std::vector<double>>> cell_counts;
 
+	cout << "dir in concat matrix " << path.string() << endl;
+	
         if ((dp = opendir(path.c_str())) == NULL) {
                 cout << "Error opening dir\n";
         //      return;
@@ -144,25 +142,26 @@ int concat_matrix(std::string path, std::unordered_map<std::string, int> cb_coun
 
 	// open output matrix file
         std::ofstream out_matrix;
-        out_matrix.open("/media/rasika/My Passport/output/out_matrix.txt");
+	auto matrix_out_path = output_path / "out_matrix.txt";
+        out_matrix.open(matrix_out_path.string());
 
 	// open output reads file
 	std::ofstream out_reads;
-	out_reads.open("/media/rasika/My Passport/output/out_reads.txt");
+	auto reads_path = output_path / "out_reads.txt";
+	out_reads.open(reads_path.string());
 
         while ((dirp = readdir(dp)) != NULL) {
 		if (std::strcmp(dirp->d_name, ".") != 0 && std::strcmp(dirp->d_name, "..") != 0) {
-			char *temp = make_file_name(path.c_str(), (const char *) dirp->d_name, 4);
-        		char *matrix_path = std::strcat(temp, suffix);
-			cout << matrix_path << endl;
+			path = path / dirp->d_name / dirp->d_name;
+			path += ".gz";
+			std::string matrix_path = path.string();
 
-			char *file_temp = make_file_name(path.c_str(), (const char *) dirp->d_name, 10);
-			char *file_path = std::strcat(file_temp, file_suffix);
-			cout << file_path << endl;
+			path.remove_leaf();
+			path = path / dirp->d_name;	
+			path += "_rows.txt";
+			std::string file_path = path.string();
 
 			read_files(matrix_path, file_path, cb_counts, cell_counts, out_matrix, out_reads);
-			std::free(temp);
-			std::free(file_temp);
                 }
 	}
         closedir(dp);
@@ -172,11 +171,27 @@ int concat_matrix(std::string path, std::unordered_map<std::string, int> cb_coun
 	return 0;
 }
 
-int main() {
-	std::string path = "../alv_matrices/";
-	std::unordered_map<std::string, int> cb_counts = get_cb_counts(path);
+int main(int argc, char *argv[]) {
+	std::string s_path = argv[1];
+	std::string s_output_path = argv[2];
+
+	boost::filesystem::path in_path{s_path};
+	boost::filesystem::path out_path{s_output_path};
 	
-	concat_matrix(path, cb_counts);
+	time_t start, end;
+
+	cout << "Getting cb counts" << endl;
+	time (&start);
+	std::unordered_map<std::string, int> cb_counts = get_cb_counts(in_path);
+	time (&end);
+	cout << "Got cb counts" << endl;
+	cout << "Time " << end - start << " sec" << endl;
+
+	cout << "Starting concatenation.." << endl;
+	time(&start);
+	concat_matrix(in_path, out_path, cb_counts);
+	time(&end);
+	cout << "Time to concatenate " << end - start << " sec" << endl;
 	cout << "exiting.." << endl;
 	return 0;
 }
