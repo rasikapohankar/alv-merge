@@ -38,6 +38,7 @@ std::unordered_map<std::string, int> get_cb_counts(boost::filesystem::path path)
 	DIR *dp;
 	struct dirent *dirp;
 	std::unordered_map<std::string, int> map;
+	boost::filesystem::path base_path;
 
 	if ((dp = opendir(path.c_str())) == NULL) {
 		cout << "Error opening dir\n";
@@ -47,10 +48,11 @@ std::unordered_map<std::string, int> get_cb_counts(boost::filesystem::path path)
 	while ((dirp = readdir(dp)) != NULL) {
 		if (std::strcmp(dirp->d_name, ".") != 0 && 
 			std::strcmp(dirp->d_name, "..") != 0) {
-			path = path / dirp->d_name / dirp->d_name;
-			path += "_rows.txt";
-			cout << path.string() << endl;
-			int count = read_row_file(path.string(), map);
+			base_path = path;
+			base_path = base_path / dirp->d_name / dirp->d_name;
+			base_path += "_rows.txt";
+			cout << base_path.string() << endl;
+			int count = read_row_file(base_path.string(), map);
 		}
 	}
 	closedir(dp);
@@ -123,7 +125,7 @@ int read_files(
 	return 0;
 }
 
-int concat_matrix( boost::filesystem::path& path,
+int concat_matrix( boost::filesystem::path path,
 		   boost::filesystem::path& output_path, 
 		   std::unordered_map<std::string, int> cb_counts
 		) {
@@ -132,6 +134,7 @@ int concat_matrix( boost::filesystem::path& path,
 	const char *suffix = ".gz";
 	const char *file_suffix = "_rows.txt";
 	std::unordered_map<std::string, std::vector<std::vector<double>>> cell_counts;
+	boost::filesystem::path base_path;
 
 	cout << "dir in concat matrix " << path.string() << endl;
 	
@@ -152,14 +155,15 @@ int concat_matrix( boost::filesystem::path& path,
 
         while ((dirp = readdir(dp)) != NULL) {
 		if (std::strcmp(dirp->d_name, ".") != 0 && std::strcmp(dirp->d_name, "..") != 0) {
-			path = path / dirp->d_name / dirp->d_name;
-			path += ".gz";
-			std::string matrix_path = path.string();
+			base_path = path;
+			base_path = base_path / dirp->d_name / dirp->d_name;
+			base_path += ".gz";
+			std::string matrix_path = base_path.string();
 
-			path.remove_leaf();
-			path = path / dirp->d_name;	
-			path += "_rows.txt";
-			std::string file_path = path.string();
+			base_path.remove_leaf();
+			base_path = base_path / dirp->d_name;
+			base_path += "_rows.txt";
+			std::string file_path = base_path.string();
 
 			read_files(matrix_path, file_path, cb_counts, cell_counts, out_matrix, out_reads);
                 }
