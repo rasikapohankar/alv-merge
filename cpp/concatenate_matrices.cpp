@@ -11,9 +11,9 @@
 #include <boost/iostreams/copy.hpp>
 #include <boost/iostreams/filtering_stream.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/iostreams/device/file.hpp>
 
 using namespace std;
-
 
 int read_row_file(std::string path, std::unordered_map<std::string, int>& map) {
         std::string line;
@@ -64,8 +64,10 @@ int read_files(
 		std::string row_file_path,
 		std::unordered_map<std::string, int> cb_counts,
 		std::unordered_map<std::string, std::vector<std::vector<double>>>& cell_counts,
-		std::ofstream& out_matrix,
-		std::ofstream& out_reads
+//		std::ofstream& out_matrix,
+		boost::iostreams::filtering_ostream& op_matrix_stream,
+		std::ofstream& out_reads,
+		std::ofstream& out_test
 	      ) {
 	time_t start, end;
 
@@ -76,6 +78,7 @@ int read_files(
 
 	int num_genes = 52325;
 	int i = 0;
+	int count = 0;
 
 	// open matrix file
 	std::ifstream matrix_file(matrix_path, std::ios_base::in | std::ios_base::binary);
@@ -87,6 +90,25 @@ int read_files(
 	std::vector<double> num_vector (num_genes, 0.0);
 	while (matrix_stream.read(reinterpret_cast<char *>(num_vector.data()), elem_size * num_genes)) {
 		std::getline(row_file, s_read);
+
+		if (cb_counts.at(s_read) >= 1) {
+			count = cb_counts.at(s_read);
+			cb_counts.at(s_read) = count - 1;
+		}
+		// write to output file
+		if (i == 0)
+	                for (auto& val: num_vector) {
+        	        	out_test << val << "\n";
+				i++;
+				if (i == 100)
+					break;
+	               	}
+                //out_matrix << "\n";
+		//out_matrix.write(reinterpret_cast<char *>(num_vector.data()), elem_size * num_genes);
+		op_matrix_stream.write(reinterpret_cast<char *>(num_vector.data()), elem_size * num_genes);
+                out_reads << s_read << "_" << count  << "\n";
+
+#if 0
 		if (cb_counts.at(s_read) == 1) {
 			// write to output file
 			for (auto& val: num_vector) {
@@ -105,10 +127,11 @@ int read_files(
 				cell_counts.insert({s_read, nums});
 			}
 		}
+#endif
 	}
 	row_file.close();
 	matrix_file.close();
-
+/*
 	int count = 0;
 	// write cell counts of repeated reads
 	for (auto content: cell_counts) {
@@ -120,6 +143,7 @@ int read_files(
 			count++;
 		}
 	}
+*/
 	time(&end);
 	cout << "Time for file " << matrix_path << ": " << end - start << " sec" << endl;
 	return 0;
@@ -144,14 +168,24 @@ int concat_matrix( boost::filesystem::path path,
         }
 
 	// open output matrix file
-        std::ofstream out_matrix;
-	auto matrix_out_path = output_path / "out_matrix.txt";
-        out_matrix.open(matrix_out_path.string());
+  //      std::ofstream out_matrix;
+	auto matrix_out_path = output_path / "out_matrix.gz";
+//        out_matrix.open(matrix_out_path.string(), std::ios_base::out | std::ios_base::binary);
+
+        boost::iostreams::filtering_ostream op_matrix_stream;
+        op_matrix_stream.push(boost::iostreams::gzip_compressor());
+	op_matrix_stream.push(boost::iostreams::file_sink(matrix_out_path.string(), 
+				ios_base::out | ios_base::binary));
+//        op_matrix_stream.push(out_matrix);
 
 	// open output reads file
 	std::ofstream out_reads;
 	auto reads_path = output_path / "out_reads.txt";
 	out_reads.open(reads_path.string());
+
+	std::ofstream out_test;
+        auto test_path = output_path / "out_test.txt";
+        out_test.open(test_path.string());
 
         while ((dirp = readdir(dp)) != NULL) {
 		if (std::strcmp(dirp->d_name, ".") != 0 && std::strcmp(dirp->d_name, "..") != 0) {
@@ -165,13 +199,17 @@ int concat_matrix( boost::filesystem::path path,
 			base_path += "_rows.txt";
 			std::string file_path = base_path.string();
 
-			read_files(matrix_path, file_path, cb_counts, cell_counts, out_matrix, out_reads);
+	//		read_files(matrix_path, file_path, cb_counts, cell_counts, out_matrix, out_reads);
+			read_files(matrix_path, file_path, cb_counts, cell_counts, op_matrix_stream, out_reads, out_test);
                 }
 	}
         closedir(dp);
 	cout << "closed dir " << endl;
-	out_matrix.close();
+	//out_matrix.close();
+	//cout << "closed out matrix file" << endl;
 	out_reads.close();
+	out_test.close();
+	cout << "closed out reads file" << endl;
 	return 0;
 }
 
@@ -193,7 +231,8 @@ int main(int argc, char *argv[]) {
 
 	cout << "Starting concatenation.." << endl;
 	time(&start);
-	concat_matrix(in_path, out_path, cb_counts);
+	cout << concat_matrix(in_path, out_path, cb_counts) << endl;
+	cout << "returned from concat_matrix" << endl;
 	time(&end);
 	cout << "Time to concatenate " << end - start << " sec" << endl;
 	cout << "exiting.." << endl;
