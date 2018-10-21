@@ -59,32 +59,68 @@ std::unordered_map<std::string, int> get_cb_counts(boost::filesystem::path path)
 	return map;
 }
 
-int read_files(
-		std::string matrix_path,
+// These functions are not currently used
+/*
+int write_non_unique(std::unordered_map<std::string, std::vector<std::vector<double>>>& cell_counts,
+		     boost::iostreams::filtering_ostream& op_matrix_stream,
+                     std::ofstream& out_reads) {
+	int count = 0;
+        // write cell counts of repeated reads
+        for (auto content: cell_counts) {
+                for(auto &cell: content.second) {
+                        out_reads << content.first << "_" << count << "\n";
+			op_matrix_stream.write(reinterpret_cast<char *>(num_vector.data()),
+									 elem_size * num_genes);
+                        count++;
+                }
+        }
+	return 0;
+}
+
+int write_unique(string s_read,
+		     std::unordered_map<std::string, int> cb_counts,
+	             std::unordered_map<std::string, std::vector<std::vector<double>>>& cell_counts,
+		     boost::iostreams::filtering_ostream& op_matrix_stream,
+                     std::ofstream& out_reads) {
+
+	if (cb_counts.at(s_read) == 1) { // write to output file
+		op_matrix_stream.write(reinterpret_cast<char *>(num_vector.data()), elem_size * num_genes);
+	        out_reads << s_read << "\n";
+        } else { // keep in memory
+		std::vector<std::vector<double>> nums;
+		if (cell_counts.count(s_read) > 0) {
+			nums = cell_counts.at(s_read);
+			nums.push_back(num_vector);
+			cell_counts.at(s_read) = nums;
+		} else {
+			nums.push_back(num_vector);
+			cell_counts.insert({s_read, nums});
+		}
+	}
+	return 0;
+}
+*/
+
+int read_files(std::string matrix_path,
 		std::string row_file_path,
 		std::unordered_map<std::string, int> cb_counts,
 		std::unordered_map<std::string, std::vector<std::vector<double>>>& cell_counts,
-//		std::ofstream& out_matrix,
 		boost::iostreams::filtering_ostream& op_matrix_stream,
-		std::ofstream& out_reads,
-		std::ofstream& out_test
-	      ) {
+		std::ofstream& out_reads) {
 	time_t start, end;
+	int num_genes = 52325; //TO-DO: read from _cols file
+        int count = 0;
 
 	time(&start);
 	// open file containing reads
 	std::ifstream row_file(row_file_path, std::ios_base::in);
 	std::string s_read;
 
-	int num_genes = 52325;
-	int i = 0;
-	int count = 0;
-
 	// open matrix file
-	std::ifstream matrix_file(matrix_path, std::ios_base::in | std::ios_base::binary);
 	boost::iostreams::filtering_istream matrix_stream;
 	matrix_stream.push(boost::iostreams::gzip_decompressor());
-	matrix_stream.push(matrix_file);
+	matrix_stream.push(boost::iostreams::file_source(matrix_path,
+							 ios_base::in | ios_base::binary));
 
 	size_t elem_size = sizeof(typename std::vector<double>::value_type);
 	std::vector<double> num_vector (num_genes, 0.0);
@@ -95,55 +131,11 @@ int read_files(
 			count = cb_counts.at(s_read);
 			cb_counts.at(s_read) = count - 1;
 		}
-		// write to output file
-		if (i == 0)
-	                for (auto& val: num_vector) {
-        	        	out_test << val << "\n";
-				i++;
-				if (i == 100)
-					break;
-	               	}
-                //out_matrix << "\n";
-		//out_matrix.write(reinterpret_cast<char *>(num_vector.data()), elem_size * num_genes);
 		op_matrix_stream.write(reinterpret_cast<char *>(num_vector.data()), elem_size * num_genes);
                 out_reads << s_read << "_" << count  << "\n";
+	}
 
-#if 0
-		if (cb_counts.at(s_read) == 1) {
-			// write to output file
-			for (auto& val: num_vector) {
-				out_matrix << val << " ";
-			}
-			out_matrix << "\n";
-			out_reads << s_read << "\n";
-		} else {
-			std::vector<std::vector<double>> nums;
-			if (cell_counts.count(s_read) > 0) {
-				nums = cell_counts.at(s_read);
-				nums.push_back(num_vector);
-				cell_counts.at(s_read) = nums;
-			} else {
-				nums.push_back(num_vector);
-				cell_counts.insert({s_read, nums});
-			}
-		}
-#endif
-	}
 	row_file.close();
-	matrix_file.close();
-/*
-	int count = 0;
-	// write cell counts of repeated reads
-	for (auto content: cell_counts) {
-		for(auto &cell: content.second) {
-			out_reads << content.first << "_" << count << "\n";
-			for (auto &val: cell)
-				out_matrix << val << " ";
-			out_matrix << "\n";
-			count++;
-		}
-	}
-*/
 	time(&end);
 	cout << "Time for file " << matrix_path << ": " << end - start << " sec" << endl;
 	return 0;
@@ -168,24 +160,16 @@ int concat_matrix( boost::filesystem::path path,
         }
 
 	// open output matrix file
-  //      std::ofstream out_matrix;
 	auto matrix_out_path = output_path / "out_matrix.gz";
-//        out_matrix.open(matrix_out_path.string(), std::ios_base::out | std::ios_base::binary);
-
         boost::iostreams::filtering_ostream op_matrix_stream;
         op_matrix_stream.push(boost::iostreams::gzip_compressor());
 	op_matrix_stream.push(boost::iostreams::file_sink(matrix_out_path.string(), 
 				ios_base::out | ios_base::binary));
-//        op_matrix_stream.push(out_matrix);
 
 	// open output reads file
 	std::ofstream out_reads;
 	auto reads_path = output_path / "out_reads.txt";
 	out_reads.open(reads_path.string());
-
-	std::ofstream out_test;
-        auto test_path = output_path / "out_test.txt";
-        out_test.open(test_path.string());
 
         while ((dirp = readdir(dp)) != NULL) {
 		if (std::strcmp(dirp->d_name, ".") != 0 && std::strcmp(dirp->d_name, "..") != 0) {
@@ -199,16 +183,12 @@ int concat_matrix( boost::filesystem::path path,
 			base_path += "_rows.txt";
 			std::string file_path = base_path.string();
 
-	//		read_files(matrix_path, file_path, cb_counts, cell_counts, out_matrix, out_reads);
-			read_files(matrix_path, file_path, cb_counts, cell_counts, op_matrix_stream, out_reads, out_test);
+			read_files(matrix_path, file_path, cb_counts, cell_counts, op_matrix_stream, out_reads);
                 }
 	}
         closedir(dp);
 	cout << "closed dir " << endl;
-	//out_matrix.close();
-	//cout << "closed out matrix file" << endl;
 	out_reads.close();
-	out_test.close();
 	cout << "closed out reads file" << endl;
 	return 0;
 }
