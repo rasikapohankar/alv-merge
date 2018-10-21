@@ -15,12 +15,12 @@
 
 using namespace std;
 
-int read_row_file(std::string path, std::unordered_map<std::string, int>& map) {
-        std::string line;
-        std::ifstream infile(path);
+int read_row_file(string path, unordered_map<string, int>& map) {
+        string line;
+        ifstream infile(path);
         int count = 0;
 
-        while (std::getline(infile, line)) {
+        while (getline(infile, line)) {
                 count++;
                 if (map.count(line) > 0) {
                         map.at(line) = map.at(line) + 1;
@@ -33,11 +33,11 @@ int read_row_file(std::string path, std::unordered_map<std::string, int>& map) {
 }
 
 
-std::unordered_map<std::string, int> get_cb_counts(boost::filesystem::path path) {
+unordered_map<string, int> get_cb_counts(boost::filesystem::path path) {
 	vector<string> files = vector<string>();
 	DIR *dp;
 	struct dirent *dirp;
-	std::unordered_map<std::string, int> map;
+	unordered_map<string, int> map;
 	boost::filesystem::path base_path;
 
 	if ((dp = opendir(path.c_str())) == NULL) {
@@ -46,8 +46,8 @@ std::unordered_map<std::string, int> get_cb_counts(boost::filesystem::path path)
 	}
 
 	while ((dirp = readdir(dp)) != NULL) {
-		if (std::strcmp(dirp->d_name, ".") != 0 && 
-			std::strcmp(dirp->d_name, "..") != 0) {
+		if (strcmp(dirp->d_name, ".") != 0 && 
+			strcmp(dirp->d_name, "..") != 0) {
 			base_path = path;
 			base_path = base_path / dirp->d_name / dirp->d_name;
 			base_path += "_rows.txt";
@@ -61,9 +61,9 @@ std::unordered_map<std::string, int> get_cb_counts(boost::filesystem::path path)
 
 // These functions are not currently used
 /*
-int write_non_unique(std::unordered_map<std::string, std::vector<std::vector<double>>>& cell_counts,
+int write_non_unique(unordered_map<std::string, vector<vector<double>>>& cell_counts,
 		     boost::iostreams::filtering_ostream& op_matrix_stream,
-                     std::ofstream& out_reads) {
+                     ofstream& out_reads) {
 	int count = 0;
         // write cell counts of repeated reads
         for (auto content: cell_counts) {
@@ -78,16 +78,16 @@ int write_non_unique(std::unordered_map<std::string, std::vector<std::vector<dou
 }
 
 int write_unique(string s_read,
-		     std::unordered_map<std::string, int> cb_counts,
-	             std::unordered_map<std::string, std::vector<std::vector<double>>>& cell_counts,
+		     unordered_map<string, int> cb_counts,
+	             unordered_map<std::string, vector<std::vector<double>>>& cell_counts,
 		     boost::iostreams::filtering_ostream& op_matrix_stream,
-                     std::ofstream& out_reads) {
+                     ofstream& out_reads) {
 
 	if (cb_counts.at(s_read) == 1) { // write to output file
 		op_matrix_stream.write(reinterpret_cast<char *>(num_vector.data()), elem_size * num_genes);
 	        out_reads << s_read << "\n";
         } else { // keep in memory
-		std::vector<std::vector<double>> nums;
+		vector<vector<double>> nums;
 		if (cell_counts.count(s_read) > 0) {
 			nums = cell_counts.at(s_read);
 			nums.push_back(num_vector);
@@ -101,20 +101,20 @@ int write_unique(string s_read,
 }
 */
 
-int read_files(std::string matrix_path,
-		std::string row_file_path,
-		std::unordered_map<std::string, int> cb_counts,
-		std::unordered_map<std::string, std::vector<std::vector<double>>>& cell_counts,
+int read_files(string matrix_path,
+		string row_file_path,
+		unordered_map<string, int> cb_counts,
+		unordered_map<string, vector<vector<double>>>& cell_counts,
 		boost::iostreams::filtering_ostream& op_matrix_stream,
-		std::ofstream& out_reads) {
+		ofstream& out_reads) {
 	time_t start, end;
 	int num_genes = 52325; //TO-DO: read from _cols file
         int count = 0;
 
 	time(&start);
 	// open file containing reads
-	std::ifstream row_file(row_file_path, std::ios_base::in);
-	std::string s_read;
+	ifstream row_file(row_file_path, ios_base::in);
+	string s_read;
 
 	// open matrix file
 	boost::iostreams::filtering_istream matrix_stream;
@@ -122,10 +122,10 @@ int read_files(std::string matrix_path,
 	matrix_stream.push(boost::iostreams::file_source(matrix_path,
 							 ios_base::in | ios_base::binary));
 
-	size_t elem_size = sizeof(typename std::vector<double>::value_type);
-	std::vector<double> num_vector (num_genes, 0.0);
+	size_t elem_size = sizeof(typename vector<double>::value_type);
+	vector<double> num_vector (num_genes, 0.0);
 	while (matrix_stream.read(reinterpret_cast<char *>(num_vector.data()), elem_size * num_genes)) {
-		std::getline(row_file, s_read);
+		getline(row_file, s_read);
 
 		if (cb_counts.at(s_read) >= 1) {
 			count = cb_counts.at(s_read);
@@ -141,15 +141,13 @@ int read_files(std::string matrix_path,
 	return 0;
 }
 
-int concat_matrix( boost::filesystem::path path,
-		   boost::filesystem::path& output_path, 
-		   std::unordered_map<std::string, int> cb_counts
+int concat_matrix(boost::filesystem::path path,
+		  boost::filesystem::path& output_path, 
+		  unordered_map<string, int> cb_counts
 		) {
         DIR *dp;
         struct dirent *dirp;
-	const char *suffix = ".gz";
-	const char *file_suffix = "_rows.txt";
-	std::unordered_map<std::string, std::vector<std::vector<double>>> cell_counts;
+	unordered_map<string, vector<vector<double>>> cell_counts;
 	boost::filesystem::path base_path;
 
 	cout << "dir in concat matrix " << path.string() << endl;
@@ -167,21 +165,21 @@ int concat_matrix( boost::filesystem::path path,
 				ios_base::out | ios_base::binary));
 
 	// open output reads file
-	std::ofstream out_reads;
+	ofstream out_reads;
 	auto reads_path = output_path / "out_reads.txt";
 	out_reads.open(reads_path.string());
 
         while ((dirp = readdir(dp)) != NULL) {
-		if (std::strcmp(dirp->d_name, ".") != 0 && std::strcmp(dirp->d_name, "..") != 0) {
+		if (strcmp(dirp->d_name, ".") != 0 && strcmp(dirp->d_name, "..") != 0) {
 			base_path = path;
 			base_path = base_path / dirp->d_name / dirp->d_name;
 			base_path += ".gz";
-			std::string matrix_path = base_path.string();
+			string matrix_path = base_path.string();
 
 			base_path.remove_leaf();
 			base_path = base_path / dirp->d_name;
 			base_path += "_rows.txt";
-			std::string file_path = base_path.string();
+			string file_path = base_path.string();
 
 			read_files(matrix_path, file_path, cb_counts, cell_counts, op_matrix_stream, out_reads);
                 }
@@ -194,8 +192,8 @@ int concat_matrix( boost::filesystem::path path,
 }
 
 int main(int argc, char *argv[]) {
-	std::string s_path = argv[1];
-	std::string s_output_path = argv[2];
+	string s_path = argv[1];
+	string s_output_path = argv[2];
 
 	boost::filesystem::path in_path{s_path};
 	boost::filesystem::path out_path{s_output_path};
@@ -204,7 +202,7 @@ int main(int argc, char *argv[]) {
 
 	cout << "Getting cb counts" << endl;
 	time (&start);
-	std::unordered_map<std::string, int> cb_counts = get_cb_counts(in_path);
+	unordered_map<string, int> cb_counts = get_cb_counts(in_path);
 	time (&end);
 	cout << "Got cb counts" << endl;
 	cout << "Time " << end - start << " sec" << endl;
