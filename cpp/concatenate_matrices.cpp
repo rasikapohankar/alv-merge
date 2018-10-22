@@ -59,48 +59,6 @@ unordered_map<string, int> get_cb_counts(boost::filesystem::path path) {
 	return map;
 }
 
-// These functions are not currently used
-/*
-int write_non_unique(unordered_map<std::string, vector<vector<double>>>& cell_counts,
-		     boost::iostreams::filtering_ostream& op_matrix_stream,
-                     ofstream& out_reads) {
-	int count = 0;
-        // write cell counts of repeated reads
-        for (auto content: cell_counts) {
-                for(auto &cell: content.second) {
-                        out_reads << content.first << "_" << count << "\n";
-			op_matrix_stream.write(reinterpret_cast<char *>(num_vector.data()),
-									 elem_size * num_genes);
-                        count++;
-                }
-        }
-	return 0;
-}
-
-int write_unique(string s_read,
-		     unordered_map<string, int> cb_counts,
-	             unordered_map<std::string, vector<std::vector<double>>>& cell_counts,
-		     boost::iostreams::filtering_ostream& op_matrix_stream,
-                     ofstream& out_reads) {
-
-	if (cb_counts.at(s_read) == 1) { // write to output file
-		op_matrix_stream.write(reinterpret_cast<char *>(num_vector.data()), elem_size * num_genes);
-	        out_reads << s_read << "\n";
-        } else { // keep in memory
-		vector<vector<double>> nums;
-		if (cell_counts.count(s_read) > 0) {
-			nums = cell_counts.at(s_read);
-			nums.push_back(num_vector);
-			cell_counts.at(s_read) = nums;
-		} else {
-			nums.push_back(num_vector);
-			cell_counts.insert({s_read, nums});
-		}
-	}
-	return 0;
-}
-*/
-
 int read_files(string matrix_path,
 		string row_file_path,
 		unordered_map<string, int> cb_counts,
@@ -159,8 +117,8 @@ int concat_matrix(boost::filesystem::path path,
 
 	// open output matrix file
 	auto matrix_out_path = output_path / "out_matrix.gz";
-        boost::iostreams::filtering_ostream op_matrix_stream;
-        op_matrix_stream.push(boost::iostreams::gzip_compressor());
+	boost::iostreams::filtering_ostream op_matrix_stream;
+	op_matrix_stream.push(boost::iostreams::gzip_compressor());
 	op_matrix_stream.push(boost::iostreams::file_sink(matrix_out_path.string(), 
 				ios_base::out | ios_base::binary));
 
@@ -216,3 +174,45 @@ int main(int argc, char *argv[]) {
 	cout << "exiting.." << endl;
 	return 0;
 }
+
+// These functions are not currently used
+/*
+int write_non_unique(unordered_map<std::string, vector<vector<double>>>& cell_counts,
+                     boost::iostreams::filtering_ostream& op_matrix_stream,
+                     ofstream& out_reads) {
+        int count = 0;
+        // write cell counts of repeated reads
+        for (auto content: cell_counts) {
+                for(auto &cell: content.second) {
+                        out_reads << content.first << "_" << count << "\n";
+                        op_matrix_stream.write(reinterpret_cast<char *>(num_vector.data()),
+                                                                         elem_size * num_genes);
+                        count++;
+                }
+        }
+        return 0;
+}
+
+int write_unique(string s_read,
+                     unordered_map<string, int> cb_counts,
+                     unordered_map<std::string, vector<std::vector<double>>>& cell_counts,
+                     boost::iostreams::filtering_ostream& op_matrix_stream,
+                     ofstream& out_reads) {
+
+        if (cb_counts.at(s_read) == 1) { // write to output file
+                op_matrix_stream.write(reinterpret_cast<char *>(num_vector.data()), elem_size * num_genes);
+                out_reads << s_read << "\n";
+        } else { // keep in memory
+                vector<vector<double>> nums;
+                if (cell_counts.count(s_read) > 0) {
+                        nums = cell_counts.at(s_read);
+                        nums.push_back(num_vector);
+                        cell_counts.at(s_read) = nums;
+                } else {
+                        nums.push_back(num_vector);
+                        cell_counts.insert({s_read, nums});
+                }
+        }
+        return 0;
+}
+*/
