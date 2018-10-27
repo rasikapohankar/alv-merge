@@ -1,7 +1,7 @@
 #!/bin/sh
 
-dir="../matrices"
-op_path="../alv_matrices"
+dir=$1
+op_path=$2
 
 for file in "$dir"/*; do
 	name=${file%.*}
