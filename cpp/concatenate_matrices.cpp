@@ -16,6 +16,7 @@
 
 using namespace std;
 namespace io=boost::iostreams; 
+namespace fs=boost::filesystem;
 
 int read_row_file(string path, unordered_map<string, int>& map) {
         string line;
@@ -34,12 +35,18 @@ int read_row_file(string path, unordered_map<string, int>& map) {
         return count;
 }
 
-unordered_map<string, int> get_cb_counts(boost::filesystem::path path, int num_matrices) {
+string get_path(fs::path base, string dir, string suffix) {
+        base = base / dir / dir;
+        base += suffix;
+        return base.string();
+}
+
+unordered_map<string, int> get_cb_counts(fs::path path, int num_matrices) {
 	vector<string> files = vector<string>();
 	DIR *dp;
 	struct dirent *dirp;
 	unordered_map<string, int> map;
-	boost::filesystem::path base_path;
+	fs::path base_path;
 	int count = 0;
 	if ((dp = opendir(path.c_str())) == NULL) {
 		cout << "Error opening dir\n";
@@ -50,10 +57,8 @@ unordered_map<string, int> get_cb_counts(boost::filesystem::path path, int num_m
 		if (strcmp(dirp->d_name, ".") != 0 && 
 			strcmp(dirp->d_name, "..") != 0) {
 			base_path = path;
-			base_path = base_path / dirp->d_name / dirp->d_name;
-			base_path += "_rows.txt";
-//			cout << base_path.string() << endl;
-			int count = read_row_file(base_path.string(), map);
+			string file_path = get_path(base_path, dirp->d_name, "_rows.txt");
+			int count = read_row_file(file_path, map);
 			count++;
 		}
 		if (count == num_matrices)
@@ -128,9 +133,8 @@ int copy_files(string matrix_path, string row_file_path,
 	while (getline(col_file, s_col)) {
 		num_cols++;
 	}
-	cout << "num cols in " << col_file_path << ": " << num_cols << endl;
+	// add assert
 
-	auto ls = std::chrono::high_resolution_clock::now();
 	while (getline(row_file, s_read)) {
 		if (cb_counts.at(s_read) >= 1) {
 			count = cb_counts.at(s_read);
@@ -138,20 +142,39 @@ int copy_files(string matrix_path, string row_file_path,
                 }
 		out_rows << s_read << "_" << count << "\n";
 	}
-	auto le = std::chrono::high_resolution_clock::now();
-//	cout << "Time for loop: " << std::chrono::duration_cast<std::chrono::milliseconds>(le - ls).count() << " ms" << endl;
 
 	row_file.close();
 	auto e = std::chrono::high_resolution_clock::now();
-	cout << "Time for file: " << std::chrono::duration_cast<std::chrono::milliseconds>(e - s).count() << " ms" << endl;
+	cout << "Time for file: " << matrix_path << " "
+	     << std::chrono::duration_cast<std::chrono::milliseconds>(e - s).count()
+	     << " ms" << endl;
 	return 0;
 }
 
-int concat_matrix(boost::filesystem::path path, boost::filesystem::path& output_path,
+void open_stream(fs::path output_path,
+			io::filtering_ostream& op_stream) {
+        op_stream.push(io::gzip_compressor());
+        op_stream.push(io::file_sink(output_path.string(),
+                                ios_base::out | ios_base::binary));
+}
+
+void write_cols(fs::path path, string ip_path) {
+	ofstream out_cols;
+	string gene;
+        
+	out_cols.open(path.string());
+        ifstream col_file(ip_path, ios_base::in);
+        while (getline(col_file, gene)) {
+                out_cols << gene << "\n";
+        }
+        out_cols.close();
+}
+
+int concat_matrix(fs::path path, fs::path& output_path,
 		  unordered_map<string, int>& cb_counts, int num_matrices) {
         DIR *dp;
         struct dirent *dirp;
-	boost::filesystem::path base_path;
+	fs::path base_path;
 	int count = 0;
 	unordered_map<string, vector<vector<double>>> cell_counts;
 
@@ -160,65 +183,42 @@ int concat_matrix(boost::filesystem::path path, boost::filesystem::path& output_
 		return -1;
         }
 
-	// open output matrix file
-        auto matrix_out_path = output_path / "out_matrix.gz";
-	boost::iostreams::filtering_ostream op_matrix_stream;
-	op_matrix_stream.push(boost::iostreams::gzip_compressor());
-	op_matrix_stream.push(boost::iostreams::file_sink(matrix_out_path.string(), 
-								ios_base::out | ios_base::binary));
+	// open output matrix stream
+	io::filtering_ostream op_stream;
+	open_stream(output_path / "out_matrix.gz", op_stream);
 
-	std::filebuf op_matrix;
-	op_matrix.open(matrix_out_path.string(), std::ios::out);
-	std::ostream op_file(&op_matrix);
+	// open output matrix file
+	// uncomment this and below copy_files call
+	/* std::filebuf op_matrix;
+	op_matrix.open((output_path / "out_matrix.gz").string(), std::ios::out);
+	std::ostream op_file(&op_matrix); */
 
 	// open output rows file
         ofstream out_rows, out_cols;
-
         auto rows_path = output_path / "out_rows.txt";
         out_rows.open(rows_path.string());
 
-	string cols_file;
+	string cols_path;
         while ((dirp = readdir(dp)) != NULL) {
 		if (strcmp(dirp->d_name, ".") != 0 && strcmp(dirp->d_name, "..") != 0) {
 			base_path = path;
-			base_path = base_path / dirp->d_name / dirp->d_name;
-			base_path += ".gz";
-			string matrix_path = base_path.string();
 
-			base_path.remove_leaf();
-			base_path = base_path / dirp->d_name;
-			base_path += "_rows.txt";
-			string rows_file = base_path.string();
+			string matrix_path = get_path(base_path, dirp->d_name, ".gz");
+			string rows_path = get_path(base_path, dirp->d_name, "_rows.txt");
+			cols_path = get_path(base_path, dirp->d_name, "_cols.txt");
 
-			base_path.remove_leaf();
-                        base_path = base_path / dirp->d_name;
-                        base_path += "_cols.txt";
-                        cols_file = base_path.string();
-
-			read_files(matrix_path, rows_file, cb_counts, cell_counts, op_matrix_stream, out_rows);
+			read_files(matrix_path, rows_path, cb_counts, cell_counts, op_stream, out_rows);
 			//copy_files(matrix_path, rows_file, cols_file, cb_counts, op_file, out_rows, out_cols);
 			count++;
                 }
 		if (count == num_matrices)
 			break;
 	}
-	auto cols_path = output_path / "out_cols.txt";
-        out_cols.open(cols_path.string());
-        ifstream col_file(cols_file, ios_base::in);
-	cout << "f: " << cols_file << endl;
-        string gene;
-        while (getline(col_file, gene)) {
-//		cout << gene << endl;
-                out_cols << gene << "\n";
-        }
-        out_cols.close();
+	write_cols(output_path / "out_cols.txt", cols_path);
 
-	cout << "count: " << count << endl;
         closedir(dp);
 	out_rows.close();
-	op_matrix.close();
-	cout << "closed dir " << endl;
-	cout << "closed out reads file" << endl;
+	//op_matrix.close();
 	return 0;
 }
 
@@ -227,8 +227,8 @@ int main(int argc, char *argv[]) {
 	string s_output_path = argv[2];
 	int num_matrices = std::stoi(argv[3]);
 
-	boost::filesystem::path in_path{s_path};
-	boost::filesystem::path out_path{s_output_path};
+	fs::path in_path{s_path};
+	fs::path out_path{s_output_path};
 
 	cout << "Getting cb counts" << endl;
         auto start = std::chrono::high_resolution_clock::now();
