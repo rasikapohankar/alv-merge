@@ -41,7 +41,7 @@ string get_path(fs::path base, string dir, string suffix) {
         return base.string();
 }
 
-unordered_map<string, int> get_cb_counts(fs::path path, int num_matrices) {
+unordered_map<string, int> get_cb_counts(fs::path path) {
 	vector<string> files = vector<string>();
 	DIR *dp;
 	struct dirent *dirp;
@@ -61,8 +61,6 @@ unordered_map<string, int> get_cb_counts(fs::path path, int num_matrices) {
 			int count = read_row_file(file_path, map);
 			count++;
 		}
-		if (count == num_matrices)
-			break;
 	}
 	closedir(dp);
 	return map;
@@ -104,7 +102,7 @@ int read_files(string matrix_path, string row_file_path,
 
 	row_file.close();
 	auto end = std::chrono::high_resolution_clock::now();
-	cout << "Time for file: " << matrix_path
+	cout << "Time for file: " << matrix_path << " "
 				  << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
 				  << " ms" << endl;
 	return 0;
@@ -113,9 +111,11 @@ int read_files(string matrix_path, string row_file_path,
 
 int copy_files(string matrix_path, string row_file_path,
 		string col_file_path, unordered_map<string, int>& cb_counts,
-		std::ostream& op_file, ofstream& out_rows, ofstream& out_cols) {
-	int num_genes = 52325, //TO-DO: read from _cols file
-	    count = 0;
+		std::ostream& op_file, ofstream& out_rows, ofstream& out_cols,
+		ofstream& out_counts, string matrix_name) {
+	int count = 0,
+	    num_cols = 0,
+	    num_rows = 0;
 
 	ifstream row_file(row_file_path, ios_base::in);
 	ifstream col_file(col_file_path, ios_base::in);
@@ -129,11 +129,10 @@ int copy_files(string matrix_path, string row_file_path,
 
 	io::copy(matrix_stream, op_file, 20480);
 
-	int num_cols = 0;
 	while (getline(col_file, s_col)) {
 		num_cols++;
+		out_cols << s_col << "\n";
 	}
-	// add assert
 
 	while (getline(row_file, s_read)) {
 		if (cb_counts.at(s_read) >= 1) {
@@ -141,15 +140,20 @@ int copy_files(string matrix_path, string row_file_path,
 			cb_counts.at(s_read) = count - 1;
                 }
 		out_rows << s_read << "_" << count << "\n";
+		num_rows++;
 	}
 
+	out_counts << matrix_name << ","  << num_rows << "," << num_cols << "\n";
+
 	row_file.close();
+	col_file.close();
 	auto e = std::chrono::high_resolution_clock::now();
 	cout << "Time for file: " << matrix_path << " "
 	     << std::chrono::duration_cast<std::chrono::milliseconds>(e - s).count()
 	     << " ms" << endl;
 	return 0;
 }
+
 
 void open_stream(fs::path output_path,
 			io::filtering_ostream& op_stream) {
@@ -158,20 +162,9 @@ void open_stream(fs::path output_path,
                                 ios_base::out | ios_base::binary));
 }
 
-void write_cols(fs::path path, string ip_path) {
-	ofstream out_cols;
-	string gene;
-        
-	out_cols.open(path.string());
-        ifstream col_file(ip_path, ios_base::in);
-        while (getline(col_file, gene)) {
-                out_cols << gene << "\n";
-        }
-        out_cols.close();
-}
 
 int concat_matrix(fs::path path, fs::path& output_path,
-		  unordered_map<string, int>& cb_counts, int num_matrices) {
+		  unordered_map<string, int>& cb_counts) {
         DIR *dp;
         struct dirent *dirp;
 	fs::path base_path;
@@ -184,63 +177,75 @@ int concat_matrix(fs::path path, fs::path& output_path,
         }
 
 	// open output matrix stream
+	/*
 	io::filtering_ostream op_stream;
 	open_stream(output_path / "out_matrix.gz", op_stream);
+	*/
 
 	// open output matrix file
 	// uncomment this and below copy_files call
-	/* std::filebuf op_matrix;
+	std::filebuf op_matrix;
 	op_matrix.open((output_path / "out_matrix.gz").string(), std::ios::out);
-	std::ostream op_file(&op_matrix); */
+	std::ostream op_file(&op_matrix);
 
 	// open output rows file
-        ofstream out_rows, out_cols;
+        ofstream out_rows, out_cols, out_counts;
         auto rows_path = output_path / "out_rows.txt";
         out_rows.open(rows_path.string());
 
-	string cols_path;
+	// open output cols file
+	auto cols_path = output_path / "out_cols.txt";
+	out_cols.open(cols_path.string());
+
+	// open output counts file
+	auto counts_path = output_path / "out_counts.txt";
+	out_counts.open(counts_path.string());
+
         while ((dirp = readdir(dp)) != NULL) {
 		if (strcmp(dirp->d_name, ".") != 0 && strcmp(dirp->d_name, "..") != 0) {
 			base_path = path;
 
 			string matrix_path = get_path(base_path, dirp->d_name, ".gz");
 			string rows_path = get_path(base_path, dirp->d_name, "_rows.txt");
-			cols_path = get_path(base_path, dirp->d_name, "_cols.txt");
+			string cols_path = get_path(base_path, dirp->d_name, "_cols.txt");
 
-			read_files(matrix_path, rows_path, cb_counts, cell_counts, op_stream, out_rows);
-			//copy_files(matrix_path, rows_file, cols_file, cb_counts, op_file, out_rows, out_cols);
-			count++;
+			//read_files(matrix_path, rows_path, cb_counts, cell_counts, op_stream, out_rows);
+			copy_files(matrix_path, rows_path, cols_path, cb_counts,
+					op_file, out_rows, out_cols, out_counts,
+					dirp->d_name);
                 }
-		if (count == num_matrices)
-			break;
 	}
-	write_cols(output_path / "out_cols.txt", cols_path);
-
         closedir(dp);
 	out_rows.close();
-	//op_matrix.close();
+	out_cols.close();
+	out_counts.close();
+	op_matrix.close();
 	return 0;
 }
+
 
 int main(int argc, char *argv[]) {
 	string s_path = argv[1];
 	string s_output_path = argv[2];
-	int num_matrices = std::stoi(argv[3]);
 
 	fs::path in_path{s_path};
 	fs::path out_path{s_output_path};
 
 	cout << "Getting cb counts" << endl;
         auto start = std::chrono::high_resolution_clock::now();
-        unordered_map<string, int> cb_counts = get_cb_counts(in_path, num_matrices);
+        unordered_map<string, int> cb_counts = get_cb_counts(in_path);
         auto end = std::chrono::high_resolution_clock::now();
-        cout << "CB counts time " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms" << endl;
+        cout << "CB counts time "
+             << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+	     << " ms" << endl;
 
 	cout << "Starting concatenation.." << endl;
 	auto s = std::chrono::high_resolution_clock::now();
-	int ret = concat_matrix(in_path, out_path, cb_counts, num_matrices);
+	int ret = concat_matrix(in_path, out_path, cb_counts);
 	auto e = std::chrono::high_resolution_clock::now();
-	cout << "Time to concatenate: " << std::chrono::duration_cast<std::chrono::milliseconds>(e - s).count() << " ms" << endl;
+	cout << "Time to concatenate: "
+	     << std::chrono::duration_cast<std::chrono::milliseconds>(e - s).count()
+	     << " ms" << endl;
 	cout << "exiting.." << endl;
 
 	return 0;
