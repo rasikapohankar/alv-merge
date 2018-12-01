@@ -215,7 +215,7 @@ int concat_matrix(fs::path path, fs::path& output_path,
 					dirp->d_name);
                 }
 	}
-        closedir(dp);
+	closedir(dp);
 	out_rows.close();
 	out_cols.close();
 	out_counts.close();
@@ -236,8 +236,8 @@ int main(int argc, char *argv[]) {
         unordered_map<string, int> cb_counts = get_cb_counts(in_path);
         auto end = std::chrono::high_resolution_clock::now();
         cout << "CB counts time "
-             << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
-	     << " ms" << endl;
+             << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() 
+             << " ms" << endl;
 
 	cout << "Starting concatenation.." << endl;
 	auto s = std::chrono::high_resolution_clock::now();
