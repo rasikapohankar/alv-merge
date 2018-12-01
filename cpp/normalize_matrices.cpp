@@ -13,25 +13,11 @@
 #include <boost/filesystem.hpp>
 #include <boost/iostreams/device/file.hpp>
 #include <chrono>
+#include <tuple>
 
 using namespace std;
 namespace io=boost::iostreams; 
 namespace fs=boost::filesystem;
-
-int read_row_file(string path, unordered_map<string, int>& map) {
-        string line;
-        ifstream infile(path);
-
-        while (getline(infile, line)) {
-                if (map.count(line) > 0) {
-                        map.at(line) = map.at(line) + 1;
-                } else {
-                        map.insert({line, 1});
-                }
-        }
-        infile.close();
-        return 0;
-}
 
 string get_path(fs::path base, string dir, string suffix) {
         base = base / dir / dir;
@@ -39,31 +25,7 @@ string get_path(fs::path base, string dir, string suffix) {
         return base.string();
 }
 
-unordered_map<string, int> get_cb_counts(fs::path path) {
-	vector<string> files = vector<string>();
-	DIR *dp;
-	struct dirent *dirp;
-	unordered_map<string, int> map;
-	fs::path base_path;
-	if ((dp = opendir(path.c_str())) == NULL) {
-		cout << "Error opening dir\n";
-	//	return;
-	}
-
-	while ((dirp = readdir(dp)) != NULL) {
-		if (strcmp(dirp->d_name, ".") != 0 && 
-			strcmp(dirp->d_name, "..") != 0) {
-			base_path = path;
-			string file_path = get_path(base_path, dirp->d_name, "_rows.txt");
-			read_row_file(file_path, map);
-		}
-	}
-	closedir(dp);
-	return map;
-}
-
-int read_files(string matrix_path, vector<vector<double>>& cell_counts)
-{
+int read_files(string matrix_path, vector<vector<double>>& cell_counts) {
         int num_genes = 52325; //TO-DO: read from _cols file
         int count = 0;
 
@@ -86,10 +48,12 @@ int read_files(string matrix_path, vector<vector<double>>& cell_counts)
                 cell_counts.push_back(num_vector);
         }
 	auto end = std::chrono::high_resolution_clock::now();
-        cout << "Time for file: " << matrix_path << " "
+        cout << "Time for file: " << matrix_path << ": "
              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
              << " ms" << endl;
-        return sum;
+	cout << "sum for " << matrix_path << ": " << sum << ", "
+		"rpc: " << sum / cell_counts.size() << endl;
+        return sum / cell_counts.size();
 }
 
 void open_stream(fs::path output_path,
@@ -111,35 +75,52 @@ void write_cols(fs::path path, string ip_path) {
         out_cols.close();
 }
 
-void normalize(unordered_map<string, vector<vector<double>>> cell_counts, int max,
-		fs::path output_path) {
+void normalize(vector<tuple<string, vector<vector<double>>>> cell_counts,
+		double fraction, vector<double> rpc, fs::path output_path) {
 	size_t elem_size = sizeof(typename vector<double>::value_type);
 	int num_genes = 52325;
-        for (auto item : cell_counts) {
-                for (auto row: item.second) {
-                        std::transform(row.begin(), row.end(), row.begin(),
-                        [&max](double c) -> double { return c / max; });
-                }       
-                auto matrix_out_path = output_path / item.first;
+	int index = rpc.at(0) < rpc.at(1) ? 0 : 1,
+	    i = 0;
+
+	vector<vector<double>> new_cell_counts;
+        for (auto item: cell_counts) {
+		if (i == index) {
+                	for (auto row: get<1>(item)) {
+                        	std::transform(row.begin(), row.end(), row.begin(),
+	                        [&fraction](double c) -> 
+					double { return c / fraction; });
+				new_cell_counts.push_back(row);
+        	        }
+		}
+                auto matrix_out_path = output_path / get<0>(item);
                 matrix_out_path += ".gz";
 
 		io::filtering_ostream op_stream;
-		auto path = output_path / item.first;
+		auto path = output_path / get<0>(item);
 		path += ".gz";
 	        open_stream(path, op_stream);
-                op_stream.write(reinterpret_cast<char *>((item.second).data()),
-					elem_size * num_genes * (item.second).size());
+		int cnt = 0;
+		if (index == i) {
+			for (auto row: new_cell_counts) {
+	        	        op_stream.write(reinterpret_cast<char *>(row.data()),
+					elem_size * num_genes);
+			}
+		} else {
+			for (auto row: get<1>(item)) {
+                                op_stream.write(reinterpret_cast<char *>(row.data()),
+                                        elem_size * num_genes);
+                        }
+		}
+		i++;
         }
 }
 
-int concat_matrix(fs::path path, fs::path& output_path,
-		  unordered_map<string, int>& cb_counts) {
+int process_matrices(fs::path path, fs::path& output_path) {
         DIR *dp;
         struct dirent *dirp;
 	fs::path base_path;
-	double sum = 0.0,
-	       max = 0.0;
-	unordered_map<string, vector<vector<double>>> cell_counts;
+	vector<double> rpc;
+	vector<tuple<string, vector<vector<double>>>> cell_counts;
 
         if ((dp = opendir(path.c_str())) == NULL) {
                 cout << "Error opening dir\n";
@@ -156,14 +137,13 @@ int concat_matrix(fs::path path, fs::path& output_path,
 			cols_path = get_path(base_path, dirp->d_name, "_cols.txt");
 
 			vector<vector<double>> matrix_count;
-			sum = read_files(matrix_path, matrix_count);
-			cout << "matrix 1 sum " << sum << endl;
-			cell_counts.insert({dirp->d_name, matrix_count});
-			if (sum > max)
-				max = sum;
+			rpc.push_back(read_files(matrix_path, matrix_count)); // reads per cell
+			cell_counts.push_back(make_tuple(dirp->d_name, matrix_count));
                 }
 	}
-	normalize(cell_counts, max, output_path);
+	double fraction = min(rpc.at(0), rpc.at(1)) / max(rpc.at(0), rpc.at(1));
+	cout << "fraction: " << fraction << endl;
+	normalize(cell_counts, fraction, rpc, output_path);
         closedir(dp);
 	return 0;
 }
@@ -175,17 +155,13 @@ int main(int argc, char *argv[]) {
 	fs::path in_path{s_path};
 	fs::path out_path{s_output_path};
 
-	cout << "Getting cb counts" << endl;
-        auto start = std::chrono::high_resolution_clock::now();
-        unordered_map<string, int> cb_counts = get_cb_counts(in_path);
-        auto end = std::chrono::high_resolution_clock::now();
-        cout << "CB counts time " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms" << endl;
-
-	cout << "Starting concatenation.." << endl;
+	cout << "Starting normalization.." << endl;
 	auto s = std::chrono::high_resolution_clock::now();
-	int ret = concat_matrix(in_path, out_path, cb_counts);
+
+	int ret = process_matrices(in_path, out_path);
+
 	auto e = std::chrono::high_resolution_clock::now();
-	cout << "Time to concatenate: " << std::chrono::duration_cast<std::chrono::milliseconds>(e - s).count() << " ms" << endl;
+	cout << "Time to normalize: " << std::chrono::duration_cast<std::chrono::milliseconds>(e - s).count() << " ms" << endl;
 	cout << "exiting.." << endl;
 
 	return 0;
