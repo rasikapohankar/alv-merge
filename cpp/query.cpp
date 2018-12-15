@@ -13,10 +13,12 @@
 #include <boost/filesystem.hpp>
 #include <boost/iostreams/device/file.hpp>
 #include <boost/iostreams/categories.hpp>
+#include <boost/program_options.hpp>
 #include <chrono>
 #include "seekgzip/seekgzip.c"
 
 using namespace std;
+namespace po = boost::program_options;
 namespace io=boost::iostreams; 
 namespace fs=boost::filesystem;
 
@@ -89,37 +91,85 @@ double query_matrix(const char *path, off_t offset) {
 }
 
 
-int main(int argc, char *argv[]) {
+int main(int argc, char **argv) {
 
-	string s_path = argv[1],
-	       matrix_name = argv[2];
-	int row = stoi(argv[3]),
-	    col = stoi(argv[4]),
-	    build_index = stoi(argv[5]);
+	string s_path, matrix_name;
+        int row, col, build_index;
+
+	/*********** Option handling  ****************/
+	po::options_description desc("Allowed options");
+	try {
+		desc.add_options()
+			("help", "produce help message")
+			("src", po::value<string>(&s_path)->required(),
+				"Path of directory containing the concatenated matrix")
+			("matrix,m", po::value<string>(&matrix_name)->required(),
+				"Matrix name to query from, such as \"E18_20160930_Neurons_Sample_12_quants_mat\"")
+			("row,r", po::value<int>(&row)->required(),
+				"Row number of matrix to be queried")
+			("col,c", po::value<int>(&col)->required(),
+				"Column number of matrix to be queried")
+			("build,b", po:: value<int>(&build_index)->default_value(0),
+				"Flag specifying whether to build index, 1 is yes, 0 no. Default value value is 0");
+
+		po::variables_map vm;
+		po::store(po::parse_command_line(argc, argv, desc), vm);
+
+		if (vm.count("help")) {
+			cout << "trying to show help" << endl << endl;
+			cout << desc << endl;
+			return 0;
+		}
+		po::notify(vm);
+	} catch (boost::program_options::required_option& e) {
+		cout << "Error: " << e.what() << endl;
+		cout << desc << endl;
+		return 1;
+	}
+	/*********** Option handling  ****************/
 
 	fs::path in_path{s_path};
-
+	if (!fs::exists(in_path)) {
+		cout << "That path '" << s_path << "' does not seem to exist!" << endl;
+		return 1;
+	}
 	vector<tuple<string, int, int>> counts;
         unordered_map<string, int> matrix_index;
 	get_metadata(in_path, counts, matrix_index);
 
+	auto start = std::chrono::high_resolution_clock::now();
 	long int offset = get_offset(matrix_index, counts, matrix_name, row, col);
+	auto end = std::chrono::high_resolution_clock::now();
 	cout << "offset " << offset << endl;
+	cout << "Time to calculate offset "
+	     << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+	     << " ms" << endl;
 
 	auto path = in_path / "out_matrix.gz";
 	const char *matrix_path = (path.string()).c_str();
 	cout << "path for index: " << matrix_path << endl;
 	if (build_index == 1) {
+		auto start = std::chrono::high_resolution_clock::now();
 		int ret = seekgzip_build(matrix_path);
 	        if (ret != 0) {
 		    cout << "Error building index, exiting.." << endl;
         	    return 1;
 	        }
+		auto end = std::chrono::high_resolution_clock::now();
+		cout << "Time to build index "
+		     << std::chrono::duration_cast<chrono::milliseconds>(end - start).count()
+		     << " ms" << endl;
 	}
 
+	auto q_s = std::chrono::high_resolution_clock::now();
 	double value = query_matrix(matrix_path, offset);
+	auto q_e = std::chrono::high_resolution_clock::now();
 	cout << "value in " << matrix_name << " at " 
 	     << row << "," << col << " is " << value << endl;
+
+	cout << "Time to query "
+	     << std::chrono::duration_cast<std::chrono::milliseconds>(q_e - q_s).count()
+	     << " ms" << endl;
 
 	cout << "exiting query.." << endl;
 	return 0;
