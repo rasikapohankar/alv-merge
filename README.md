@@ -50,6 +50,9 @@ ture as used for concatenation. The two output matrices will be created in `dest
     * The utility builds an index on the compressed binary matrix, and allows random seek.
 
   * Runtime:
+    * The offset calculation takes less than 1 ms. The time taken to build the index on concatenated 69 matrices is 12 s. 
+      The time for query after the index is built is: 0.235 ms. The last matrix processed during concatenation was E18 20160930 Neurons Sample 36 quants mat. 
+      The query for its last cell (12082, 52325) takes 0.316 s.
 
   * How to run:
     * Compile: `g++ -std=c++11 -O3 query.cpp -o query -lz -lboost iostreams -lboost system -lboost filesystem`
